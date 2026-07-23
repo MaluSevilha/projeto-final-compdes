@@ -1,2 +1,7 @@
-# projeto-final-compdes
-Projeto Final para a Eletiva de Computação de Alto Desempenho
+# Projeto Final
+
+Estrutura principal:
+- `data/`: base CIFAR extraída
+- `docs/`: discovery e plano
+- `scripts/`: código do pipeline e benchmarks
+- `outputs/`: CSVs, `.npz`, perfis e gráficos
