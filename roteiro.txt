@@ -1,0 +1,5 @@
+Vendendo a solução pro cliente
+- Apresentar o problema
+- Apresentar o sequencial
+- Apresentar as otimizações
+- Apresentar o resultado final

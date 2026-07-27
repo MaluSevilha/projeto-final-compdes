@@ -56,10 +56,7 @@ def load_class_names(data_dir: Path, dataset: str) -> Optional[List[str]]:
         return None
 
     meta = unpickle(path)
-    if dataset.lower() == "cifar10":
-        names = meta.get("label_names")
-    else:
-        names = meta.get("fine_label_names")
+    names = meta.get("label_names") if dataset.lower() == "cifar10" else meta.get("fine_label_names")
 
     if not names:
         return None
@@ -105,9 +102,7 @@ def load_dataset(
         labels_list.append(labels)
 
     if not images_list:
-        raise FileNotFoundError(
-            f"Nenhum batch carregado em {data_dir}. Verifique o caminho e o dataset."
-        )
+        raise FileNotFoundError(f"Nenhum batch carregado em {data_dir}. Verifique o caminho e o dataset.")
 
     images_flat = np.concatenate(images_list, axis=0)
     labels = np.concatenate(labels_list, axis=0)
