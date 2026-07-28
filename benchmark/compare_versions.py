@@ -12,6 +12,7 @@ from experiments.baseline.pipeline import process_pipeline as run_baseline
 from experiments.vectorized.pipeline import process_pipeline as run_vectorized
 from experiments.multiprocessing.pipeline import process_pipeline as run_mp
 from experiments.gpu.pipeline import process_pipeline as run_gpu
+from experiments.numba.pipeline import process_pipeline as run_numba
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processes", type=int, default=None)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument("--csv", type=Path, default=Path("outputs/benchmarks/compare_versions.csv"))
+    parser.add_argument("--csv", type=Path, default=Path("outputs/benchmarks/compare_versions_2.csv"))
     return parser.parse_args()
 
 
@@ -51,6 +52,7 @@ def main() -> None:
 
     rows.append(benchmark_one("baseline", run_baseline, repeat=args.repeat, dataset=args.dataset, split=args.split, limit=args.limit))
     rows.append(benchmark_one("vectorized", run_vectorized, repeat=args.repeat, dataset=args.dataset, split=args.split, limit=args.limit))
+    rows.append(benchmark_one("numba", run_numba, repeat=args.repeat, dataset=args.dataset, split=args.split, limit=args.limit))
     rows.append(benchmark_one("multiprocessing", run_mp, repeat=args.repeat, dataset=args.dataset, split=args.split, limit=args.limit, processes=args.processes))
 
     try:
