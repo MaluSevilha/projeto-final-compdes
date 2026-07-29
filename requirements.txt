@@ -1,2 +1,10 @@
 numpy
 matplotlib
+pandas
+numba
+
+# Opcionais, nao instalados por padrao:
+# torch      -> versao GPU. A instalacao depende da versao de CUDA da maquina:
+#               https://pytorch.org/get-started/locally/
+# jupyter    -> abrir o relatorio final.ipynb
+# snakeviz   -> visualizar os perfis .prof no navegador

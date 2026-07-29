@@ -5,10 +5,18 @@ Generate outputs/benchmarks/scaling_sandbox.csv for the CIFAR-10 project.
 Expected CSV schema:
 n_images, baseline, vectorized, numba, multiprocessing, gpu
 
-Difference from the previous version:
-- Numba is measured in a fresh subprocess every time.
-- Each subprocess gets a unique NUMBA_CACHE_DIR.
-- This forces the JIT compilation cost to be included on every Numba measurement.
+Dois modos de medicao do Numba, escolhidos por --numba-mode:
+
+- hot (default): warm-up antes de medir, entao o tempo reflete a execucao do
+  codigo ja compilado. E o regime principal do relatorio.
+  Gera outputs/benchmarks/scaling_hot.csv.
+
+- cold: cada ponto roda em subprocesso novo com NUMBA_CACHE_DIR unico, o que
+  forca a recompilacao JIT em toda medicao. Serve para quantificar o custo fixo
+  da compilacao. Gera outputs/benchmarks/scaling_numba_cold.csv.
+
+Os volumes pedidos sao ajustados ao teto do split (o treino da CIFAR-10 tem
+50.000 imagens), para nao registrar pontos que medem o mesmo volume.
 """
 
 from __future__ import annotations
@@ -237,10 +245,18 @@ def measure_numba_cold(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate the scaling benchmark CSV.")
     parser.add_argument(
+        "--numba-mode",
+        choices=["hot", "cold"],
+        default="hot",
+        help="hot: mede o Numba já compilado (regime principal). "
+             "cold: recompila em cada ponto, para medir o custo do JIT.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "benchmarks" / "scaling_sandbox_5000.csv",
-        help="Path do CSV de saída.",
+        default=None,
+        help="Path do CSV de saída. Default: scaling_hot.csv ou "
+             "scaling_numba_cold.csv, conforme --numba-mode.",
     )
     parser.add_argument(
         "--dataset",
@@ -257,11 +273,8 @@ def main() -> int:
         nargs="+",
         type=int,
         default=[
-            100,
-            500,
-            1000,
-            2000,
-            5000
+            100, 500, 1000, 2000, 5000,
+            10000, 15000, 20000, 30000, 40000, 50000,
         ],
         help="Lista de tamanhos de entrada a testar.",
     )
@@ -303,22 +316,49 @@ def main() -> int:
     if not CIFAR10_DIR.exists():
         raise FileNotFoundError(f"Base CIFAR-10 não encontrada em: {CIFAR10_DIR}")
 
-    max_n = max(args.counts)
+    if args.output is None:
+        name = "scaling_hot.csv" if args.numba_mode == "hot" else "scaling_numba_cold.csv"
+        args.output = PROJECT_ROOT / "outputs" / "benchmarks" / name
+
+    # o split inteiro, para descobrir o teto real de imagens disponiveis
     images_flat, labels, class_names = load_dataset(
         CIFAR10_DIR,
         dataset=args.dataset,
         split=args.split,
-        limit=max_n,
+        limit=None,
     )
     images_rgb = reconstruct_images(images_flat)
+    ceiling = int(images_rgb.shape[0])
 
-    print(f"Carregadas {images_rgb.shape[0]} imagens para benchmark.")
+    counts = sorted({c for c in args.counts if 0 < c <= ceiling})
+    if ceiling not in counts:
+        counts.append(ceiling)
+    if counts != sorted(set(args.counts)):
+        print(f"Volumes ajustados ao teto do split '{args.split}' ({ceiling} imagens).")
+    args.counts = counts
+
+    print(f"Carregadas {ceiling} imagens para benchmark.")
+    print(f"Modo do Numba: {args.numba_mode}")
     print(f"Classes: {class_names if class_names else 'n/d'}")
 
-    versions = build_versions()
+    # resolve as versoes e descarta as que nao executam nesta maquina
+    # (o import pode funcionar e a execucao falhar, p.ex. torch sem CUDA)
     resolved: dict[str, Callable[..., Any]] = {}
-    for spec in versions:
-        resolved[spec.name] = load_callable(spec.modules, spec.attrs)
+    versions = []
+    for spec in build_versions():
+        try:
+            fn = load_callable(spec.modules, spec.attrs)
+            call_pipeline(fn, dataset=args.dataset, split=args.split, limit=2)
+        except Exception as exc:  # noqa: BLE001
+            print(f"AVISO: versao '{spec.name}' indisponivel, removendo do benchmark "
+                  f"({type(exc).__name__}: {exc}).")
+            continue
+        resolved[spec.name] = fn
+        versions.append(spec)
+
+    if not versions:
+        raise RuntimeError("Nenhuma versao disponivel para medir.")
+    print(f"Versoes: {[v.name for v in versions]}")
 
     rows: list[dict[str, Any]] = []
 
@@ -327,8 +367,8 @@ def main() -> int:
         row: dict[str, Any] = {"n_images": n}
 
         for spec in versions:
-            if spec.name == "numba":
-                # Always cold: new process + unique Numba cache dir.
+            if spec.name == "numba" and args.numba_mode == "cold":
+                # frio: processo novo + NUMBA_CACHE_DIR unico em cada medicao
                 total_s = measure_numba_cold(
                     dataset=args.dataset,
                     split=args.split,
@@ -336,7 +376,7 @@ def main() -> int:
                 )
             else:
                 fn = resolved[spec.name]
-                warmup = not args.no_warmup and spec.name == "gpu"
+                warmup = not args.no_warmup and spec.name in ("numba", "gpu")
                 total_s = run_version(
                     fn,
                     dataset=args.dataset,
@@ -351,10 +391,7 @@ def main() -> int:
 
         rows.append(row)
 
-    df = pd.DataFrame(
-        rows,
-        columns=["n_images", "baseline", "vectorized", "numba", "multiprocessing", "gpu"],
-    )
+    df = pd.DataFrame(rows, columns=["n_images", *[v.name for v in versions]])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.output, index=False, float_format="%.6f", quoting=csv.QUOTE_MINIMAL)
 
